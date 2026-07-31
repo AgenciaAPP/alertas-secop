@@ -30,6 +30,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // protege el panel de admini
 // ====================================================================================
 const TEST_EMAIL_OVERRIDE = process.env.TEST_EMAIL_OVERRIDE || '';
 
+// Si tiene un valor, ese correo recibe una copia oculta (BCC) de CADA alerta real
+// enviada a un supervisor, para hacer seguimiento sin que el supervisor lo note.
+const COPIA_SEGUIMIENTO = process.env.COPIA_SEGUIMIENTO || '';
+
 // ====================================================================================
 // CORRECCIÓN DE CÉDULAS MAL DIGITADAS EN SECOP
 // Algunos contratos en SECOP tienen la cédula del supervisor con un error de
@@ -376,7 +380,8 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
         contentType: 'HTML',
         content: construirCorreoHtml(nombreSupervisor, contratos)
       },
-      toRecipients: [{ emailAddress: { address: destinatarioFinal } }]
+      toRecipients: [{ emailAddress: { address: destinatarioFinal } }],
+      ...(COPIA_SEGUIMIENTO ? { bccRecipients: [{ emailAddress: { address: COPIA_SEGUIMIENTO } }] } : {})
     }
   };
 
