@@ -335,13 +335,13 @@ function construirCorreoHtml(nombreSupervisor, contratos) {
 
         <p style="font-size:13px; color:${COLOR_GRIS}; line-height:1.6;">
           Este es un mensaje automático generado a partir de la información pública registrada en SECOP II.
-          Si tienes dudas sobre alguno de estos contratos, por favor contacta a la Dirección Técnica.
+          Si tienes dudas sobre alguno de estos contratos, por favor contacta a la Dirección Administrativa y Financiera.
         </p>
       </div>
 
       <!-- FOOTER -->
       <div style="background-color:#f8f9fa; padding:18px 32px; text-align:center; border-top:1px solid #e5e7eb;">
-        <p style="margin:0; font-size:11px; color:#94a3b8;">Alertas de Vencimiento de Contratos &bull; Dirección Técnica &bull; Agencia APP</p>
+        <p style="margin:0; font-size:11px; color:#94a3b8;">Alertas de Vencimiento de Contratos &bull; Dirección Administrativa y Financiera &bull; Agencia APP</p>
       </div>
     </div>
   </div>
