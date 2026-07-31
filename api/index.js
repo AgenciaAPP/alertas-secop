@@ -148,7 +148,12 @@ async function eliminarSupervisor(token, idSharePoint) {
 // ====================================================================================
 async function obtenerRemitenteConfigurado(token) {
   const url = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/lists/${LIST_ID_CONFIG_ALERTAS}/items?expand=fields&$filter=fields/Title eq 'REMITENTE_ACTIVO'`;
-  const response = await axios.get(url, { headers: { 'Authorization': `Bearer ${token}` } });
+  const response = await axios.get(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Prefer': 'HonorNonIndexedQueriesWarningMayFailRandomly'
+    }
+  });
   if (response.data.value.length === 0) return null;
   const item = response.data.value[0];
   return {
@@ -342,9 +347,11 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
 // RUTA: CRON DIARIO DE ALERTAS DE VENCIMIENTO
 // ====================================================================================
 app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
+  let etapaActual = 'obtener_token_graph';
   try {
     const token = await getMicrosoftGraphToken();
 
+    etapaActual = 'obtener_remitente_configurado';
     const remitenteConfig = await obtenerRemitenteConfigurado(token);
     const correoRemitente = remitenteConfig?.correoRemitente?.trim();
 
@@ -355,14 +362,16 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
       });
     }
 
-    const [contratos, supervisores] = await Promise.all([
-      obtenerContratosProximosAVencer(),
-      obtenerSupervisores(token)
-    ]);
+    etapaActual = 'consultar_secop';
+    const contratos = await obtenerContratosProximosAVencer();
+
+    etapaActual = 'obtener_supervisores_sharepoint';
+    const supervisores = await obtenerSupervisores(token);
 
     const grupos = agruparContratosPorSupervisor(contratos);
     const resultados = [];
 
+    etapaActual = 'enviar_correos';
     for (const cedulaSupervisor of Object.keys(grupos)) {
       const supervisor = supervisores[cedulaSupervisor];
       const contratosDelSupervisor = grupos[cedulaSupervisor];
@@ -398,7 +407,8 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
           nombreSupervisor: supervisor.nombre,
           totalContratos: contratosDelSupervisor.length,
           enviado: false,
-          motivo: 'error_envio'
+          motivo: 'error_envio',
+          detalleError: errEnvio.response?.data?.error?.message || errEnvio.message
         });
       }
     }
@@ -411,8 +421,13 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
       detalle: resultados
     });
   } catch (error) {
-    console.error('Error en cron de alertas de vencimiento:', error.response?.data || error.message);
-    return res.status(500).json({ success: false, message: 'Error ejecutando el proceso de alertas.', detail: error.message });
+    console.error(`Error en cron de alertas de vencimiento (etapa: ${etapaActual}):`, error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Error ejecutando el proceso de alertas.',
+      etapa: etapaActual,
+      detail: error.response?.data || error.message
+    });
   }
 });
 
