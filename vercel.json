@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.js", "use": "@vercel/node" },
+    { "src": "public/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/admin", "dest": "/public/admin.html" },
+    { "src": "/(.*)", "dest": "api/index.js" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-alertas-vencimiento",
+      "schedule": "0 13 * * *"
+    }
+  ]
+}
