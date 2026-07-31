@@ -23,6 +23,13 @@ const LIST_ID_CONFIG_ALERTAS = process.env.LIST_ID_CONFIG_ALERTAS; // dd3181bf-4
 const CRON_SECRET = process.env.CRON_SECRET; // protege el endpoint del cron
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // protege el panel de administración
 
+// ====================================================================================
+// MODO PRUEBA: si TEST_EMAIL_OVERRIDE tiene un valor, TODOS los correos se envían
+// a esa dirección en vez de al supervisor real (el asunto deja claro el destinatario
+// original). Déjala vacía/sin definir para que el envío sea real a cada supervisor.
+// ====================================================================================
+const TEST_EMAIL_OVERRIDE = process.env.TEST_EMAIL_OVERRIDE || '';
+
 const NIT_AGENCIA_APP = '900623766';
 const DIAS_ANTICIPACION = 30;
 const DIAS_HABILES_RESPUESTA = 5;
@@ -307,14 +314,20 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
   const url = `https://graph.microsoft.com/v1.0/users/${correoRemitente}/sendMail`;
   const cantidad = contratos.length;
 
+  const modoPrueba = Boolean(TEST_EMAIL_OVERRIDE);
+  const destinatarioFinal = modoPrueba ? TEST_EMAIL_OVERRIDE : correoSupervisor;
+  const asunto = modoPrueba
+    ? `🧪 [PRUEBA - destinatario real: ${correoSupervisor}] ${cantidad} contrato(s) de prestación de servicios próximos a vencer`
+    : `⏰ Alerta: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`;
+
   const mailPayload = {
     message: {
-      subject: `⏰ Alerta: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`,
+      subject: asunto,
       body: {
         contentType: 'HTML',
         content: construirCorreoHtml(nombreSupervisor, contratos)
       },
-      toRecipients: [{ emailAddress: { address: correoSupervisor } }]
+      toRecipients: [{ emailAddress: { address: destinatarioFinal } }]
     }
   };
 
@@ -392,6 +405,7 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      modoPrueba: Boolean(TEST_EMAIL_OVERRIDE),
       totalContratosEncontrados: contratos.length,
       totalSupervisoresNotificados: resultados.filter(r => r.enviado).length,
       detalle: resultados
