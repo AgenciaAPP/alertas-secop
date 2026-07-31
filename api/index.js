@@ -31,7 +31,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // protege el panel de admini
 const TEST_EMAIL_OVERRIDE = process.env.TEST_EMAIL_OVERRIDE || '';
 
 const NIT_AGENCIA_APP = '900623766';
-const DIAS_ANTICIPACION = 30;
+const DIAS_ANTICIPACION = process.env.DIAS_ANTICIPACION ? parseInt(process.env.DIAS_ANTICIPACION, 10) : 30;
 const DIAS_HABILES_RESPUESTA = 5;
 
 // URL del logo institucional de Agencia APP (reemplazar por la URL real hospedada,
