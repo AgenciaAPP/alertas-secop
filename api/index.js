@@ -174,15 +174,33 @@ async function obtenerRemitenteConfigurado(token) {
   const item = response.data.value[0];
   return {
     idSharePoint: item.id,
+    etag: item['@odata.etag'] || item.eTag || null,
     correoRemitente: item.fields.CorreoRemitente || '',
     ultimaEjecucion: item.fields.UltimaEjecucion || ''
   };
 }
 
-async function actualizarUltimaEjecucion(token, idSharePoint, isoTimestamp) {
+// Devuelve true si logró tomar el "bloqueo" (nadie más lo había tomado desde que
+// leímos el ETag). Devuelve false si otra petición concurrente ya lo tomó primero
+// (choque de ETag = 412 Precondition Failed), en cuyo caso NO se debe continuar.
+async function intentarTomarBloqueoEjecucion(token, idSharePoint, etag, isoTimestamp) {
   const url = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/lists/${LIST_ID_CONFIG_ALERTAS}/items/${idSharePoint}`;
   const payload = { fields: { UltimaEjecucion: isoTimestamp } };
-  await axios.patch(url, payload, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
+  try {
+    await axios.patch(url, payload, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(etag ? { 'If-Match': etag } : {})
+      }
+    });
+    return true;
+  } catch (error) {
+    if (error.response?.status === 412) {
+      return false; // otra ejecución concurrente ganó la carrera
+    }
+    throw error;
+  }
 }
 
 async function actualizarRemitente(token, idSharePoint, nuevoCorreo) {
@@ -388,10 +406,11 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
       });
     }
 
-    // ---- PROTECCIÓN ANTI-DUPLICADOS ----
-    // Si el proceso ya se ejecutó hace menos de 60 segundos (ej. por precarga del
-    // navegador al pegar la URL, doble-click, o un reintento de red), se cancela
-    // esta ejecución sin enviar ningún correo.
+    // ---- PROTECCIÓN ANTI-DUPLICADOS (bloqueo optimista con ETag) ----
+    // Se mantiene también un chequeo rápido de "hace menos de 60s" como primer
+    // filtro barato, pero la protección real contra ejecuciones simultáneas es
+    // el bloqueo por ETag: si dos peticiones casi idénticas en el tiempo intentan
+    // marcar la ejecución a la vez, solo una gana (la otra recibe 412 y se cancela).
     const ahora = new Date();
     if (remitenteConfig.ultimaEjecucion) {
       const ultima = new Date(remitenteConfig.ultimaEjecucion);
@@ -403,9 +422,20 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
         });
       }
     }
-    // Se marca la ejecución ANTES de enviar los correos, para minimizar la ventana
-    // de tiempo en la que una segunda petición simultánea podría colarse.
-    await actualizarUltimaEjecucion(token, remitenteConfig.idSharePoint, ahora.toISOString());
+
+    const tomoBloqueo = await intentarTomarBloqueoEjecucion(
+      token,
+      remitenteConfig.idSharePoint,
+      remitenteConfig.etag,
+      ahora.toISOString()
+    );
+
+    if (!tomoBloqueo) {
+      return res.status(200).json({
+        success: false,
+        message: 'Ejecución cancelada: otra petición concurrente ya estaba procesando esta alerta (bloqueo por ETag).'
+      });
+    }
 
     etapaActual = 'consultar_secop';
     const { contratos, fechaObjetivo, diasAnticipacionUsados } = await obtenerContratosProximosAVencer();
