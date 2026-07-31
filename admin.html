@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin · Alertas SECOP · Agencia APP</title>
+<style>
+  :root {
+    --azul: #1878ba;
+    --amarillo: #ffd500;
+    --gris: #6a6a6a;
+    --texto: #333333;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f4f6f8;
+    margin: 0;
+    color: var(--texto);
+  }
+  header {
+    background: var(--azul);
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 {
+    color: #fff;
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .cinta { height: 4px; background: var(--amarillo); }
+  main { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+  .card h2 {
+    color: var(--azul);
+    font-size: 15px;
+    margin: 0 0 16px 0;
+    border-bottom: 2px solid var(--azul);
+    padding-bottom: 8px;
+  }
+  input, button {
+    font-family: inherit;
+    font-size: 13px;
+  }
+  input {
+    padding: 8px 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 5px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+  button {
+    background: var(--azul);
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  button.secundario { background: var(--gris); }
+  button.peligro { background: #dc2626; }
+  button:hover { opacity: 0.9; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #eee; }
+  th { color: var(--azul); font-size: 11px; text-transform: uppercase; }
+  #loginBox { max-width: 360px; margin: 80px auto; }
+  .oculto { display: none; }
+  .msg { font-size: 12px; margin-top: 8px; }
+  .msg.ok { color: #166534; }
+  .msg.error { color: #991b1b; }
+</style>
+</head>
+<body>
+
+<div id="loginBox" class="card oculto">
+  <h2>Ingreso administrador</h2>
+  <input type="password" id="passwordInput" placeholder="Contraseña de administrador" style="width:100%;" />
+  <button onclick="login()" style="width:100%; margin-top:8px;">Ingresar</button>
+  <p class="msg error" id="loginMsg"></p>
+</div>
+
+<div id="app" class="oculto">
+  <header>
+    <h1>Alertas de Vencimiento SECOP · Panel Administrador</h1>
+    <button class="secundario" onclick="logout()">Cerrar sesión</button>
+  </header>
+  <div class="cinta"></div>
+
+  <main>
+    <div class="card">
+      <h2>Correo remitente</h2>
+      <input type="email" id="remitenteInput" placeholder="direcciontecnica@app.gov.co" style="width:320px;" />
+      <button onclick="guardarRemitente()">Guardar</button>
+      <p class="msg" id="remitenteMsg"></p>
+    </div>
+
+    <div class="card">
+      <h2>Agregar supervisor</h2>
+      <input type="text" id="nuevaCedula" placeholder="Cédula" />
+      <input type="text" id="nuevoNombre" placeholder="Nombre completo" />
+      <input type="email" id="nuevoCorreo" placeholder="Correo" />
+      <button onclick="agregarSupervisor()">Agregar</button>
+      <p class="msg" id="agregarMsg"></p>
+    </div>
+
+    <div class="card">
+      <h2>Supervisores registrados</h2>
+      <table>
+        <thead>
+          <tr><th>Cédula</th><th>Nombre</th><th>Correo</th><th></th></tr>
+        </thead>
+        <tbody id="tablaSupervisores"></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script>
+  const API_BASE = ''; // mismo dominio del despliegue en Vercel
+
+  function getPassword() { return sessionStorage.getItem('adminPassword') || ''; }
+
+  function headers() {
+    return { 'Content-Type': 'application/json', 'x-admin-password': getPassword() };
+  }
+
+  async function login() {
+    const pass = document.getElementById('passwordInput').value;
+    sessionStorage.setItem('adminPassword', pass);
+    const ok = await cargarDatos();
+    if (ok) {
+      document.getElementById('loginBox').classList.add('oculto');
+      document.getElementById('app').classList.remove('oculto');
+    } else {
+      document.getElementById('loginMsg').textContent = 'Contraseña incorrecta.';
+    }
+  }
+
+  function logout() {
+    sessionStorage.removeItem('adminPassword');
+    location.reload();
+  }
+
+  async function cargarDatos() {
+    const resSup = await fetch(`${API_BASE}/api/admin/supervisores`, { headers: headers() });
+    if (resSup.status === 401) return false;
+    const dataSup = await resSup.json();
+    renderSupervisores(dataSup.data || []);
+
+    const resRem = await fetch(`${API_BASE}/api/admin/remitente`, { headers: headers() });
+    const dataRem = await resRem.json();
+    document.getElementById('remitenteInput').value = dataRem.data?.correoRemitente || '';
+
+    return true;
+  }
+
+  function renderSupervisores(lista) {
+    const tbody = document.getElementById('tablaSupervisores');
+    tbody.innerHTML = '';
+    lista.forEach(s => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${s.cedula}</td>
+        <td>${s.nombre}</td>
+        <td>${s.correo}</td>
+        <td><button class="peligro" onclick="eliminarSupervisor('${s.idSharePoint}')">Eliminar</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function agregarSupervisor() {
+    const cedula = document.getElementById('nuevaCedula').value.trim();
+    const nombre = document.getElementById('nuevoNombre').value.trim();
+    const correo = document.getElementById('nuevoCorreo').value.trim();
+    const msg = document.getElementById('agregarMsg');
+
+    if (!cedula || !correo) {
+      msg.className = 'msg error';
+      msg.textContent = 'Cédula y correo son obligatorios.';
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/api/admin/supervisores`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ cedula, nombre, correo })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      msg.className = 'msg ok';
+      msg.textContent = 'Supervisor agregado.';
+      document.getElementById('nuevaCedula').value = '';
+      document.getElementById('nuevoNombre').value = '';
+      document.getElementById('nuevoCorreo').value = '';
+      cargarDatos();
+    } else {
+      msg.className = 'msg error';
+      msg.textContent = 'Error al agregar.';
+    }
+  }
+
+  async function eliminarSupervisor(idSharePoint) {
+    if (!confirm('¿Eliminar este supervisor?')) return;
+    await fetch(`${API_BASE}/api/admin/supervisores/${idSharePoint}`, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    cargarDatos();
+  }
+
+  async function guardarRemitente() {
+    const correoRemitente = document.getElementById('remitenteInput').value.trim();
+    const msg = document.getElementById('remitenteMsg');
+    const res = await fetch(`${API_BASE}/api/admin/remitente`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ correoRemitente })
+    });
+    const data = await res.json();
+    if (data.success) {
+      msg.className = 'msg ok';
+      msg.textContent = 'Remitente actualizado.';
+    } else {
+      msg.className = 'msg error';
+      msg.textContent = 'Error al actualizar.';
+    }
+  }
+
+  // Al cargar: si ya hay contraseña en sesión, intenta entrar directo
+  (async function init() {
+    if (getPassword()) {
+      const ok = await cargarDatos();
+      if (ok) {
+        document.getElementById('app').classList.remove('oculto');
+        return;
+      }
+    }
+    document.getElementById('loginBox').classList.remove('oculto');
+  })();
+</script>
+
+</body>
+</html>
