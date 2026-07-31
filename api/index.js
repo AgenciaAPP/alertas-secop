@@ -366,8 +366,8 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
   const modoPrueba = Boolean(TEST_EMAIL_OVERRIDE);
   const destinatarioFinal = modoPrueba ? TEST_EMAIL_OVERRIDE : correoSupervisor;
   const asunto = modoPrueba
-    ? `🧪 [PRUEBA - destinatario real: ${correoSupervisor}] ${cantidad} contrato(s) de prestación de servicios próximos a vencer`
-    : `⏰ Alerta: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`;
+    ? `🧪 [PRUEBA - destinatario real: ${correoSupervisor}] Atención supervisor: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`
+    : `⏰ Atención supervisor: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`;
 
   const mailPayload = {
     message: {
