@@ -158,8 +158,15 @@ async function obtenerRemitenteConfigurado(token) {
   const item = response.data.value[0];
   return {
     idSharePoint: item.id,
-    correoRemitente: item.fields.CorreoRemitente || ''
+    correoRemitente: item.fields.CorreoRemitente || '',
+    ultimaEjecucion: item.fields.UltimaEjecucion || ''
   };
+}
+
+async function actualizarUltimaEjecucion(token, idSharePoint, isoTimestamp) {
+  const url = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/lists/${LIST_ID_CONFIG_ALERTAS}/items/${idSharePoint}`;
+  const payload = { fields: { UltimaEjecucion: isoTimestamp } };
+  await axios.patch(url, payload, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
 }
 
 async function actualizarRemitente(token, idSharePoint, nuevoCorreo) {
@@ -196,7 +203,7 @@ async function obtenerContratosProximosAVencer() {
     headers: { 'User-Agent': 'Mozilla/5.0' }
   });
 
-  return response.data || [];
+  return { contratos: response.data || [], fechaObjetivo, diasAnticipacionUsados: DIAS_ANTICIPACION };
 }
 
 // ====================================================================================
@@ -360,8 +367,27 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
       });
     }
 
+    // ---- PROTECCIÓN ANTI-DUPLICADOS ----
+    // Si el proceso ya se ejecutó hace menos de 60 segundos (ej. por precarga del
+    // navegador al pegar la URL, doble-click, o un reintento de red), se cancela
+    // esta ejecución sin enviar ningún correo.
+    const ahora = new Date();
+    if (remitenteConfig.ultimaEjecucion) {
+      const ultima = new Date(remitenteConfig.ultimaEjecucion);
+      const segundosDesdeUltima = (ahora.getTime() - ultima.getTime()) / 1000;
+      if (segundosDesdeUltima < 60) {
+        return res.status(200).json({
+          success: false,
+          message: `Ejecución cancelada: ya se corrió el proceso hace ${Math.round(segundosDesdeUltima)} segundos (protección anti-duplicados de 60s).`
+        });
+      }
+    }
+    // Se marca la ejecución ANTES de enviar los correos, para minimizar la ventana
+    // de tiempo en la que una segunda petición simultánea podría colarse.
+    await actualizarUltimaEjecucion(token, remitenteConfig.idSharePoint, ahora.toISOString());
+
     etapaActual = 'consultar_secop';
-    const contratos = await obtenerContratosProximosAVencer();
+    const { contratos, fechaObjetivo, diasAnticipacionUsados } = await obtenerContratosProximosAVencer();
 
     etapaActual = 'obtener_supervisores_sharepoint';
     const supervisores = await obtenerSupervisores(token);
@@ -414,6 +440,8 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
     return res.status(200).json({
       success: true,
       modoPrueba: Boolean(TEST_EMAIL_OVERRIDE),
+      fechaObjetivoUsada: fechaObjetivo,
+      diasAnticipacionUsados,
       totalContratosEncontrados: contratos.length,
       totalSupervisoresNotificados: resultados.filter(r => r.enviado).length,
       detalle: resultados
