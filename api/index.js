@@ -176,14 +176,12 @@ function formatoFechaSoQL(date) {
 }
 
 async function obtenerContratosProximosAVencer() {
-  const hoy = new Date();
-  const limite = new Date();
-  limite.setDate(hoy.getDate() + DIAS_ANTICIPACION);
+  const objetivo = new Date();
+  objetivo.setDate(objetivo.getDate() + DIAS_ANTICIPACION);
 
-  const desde = formatoFechaSoQL(hoy);
-  const hasta = formatoFechaSoQL(limite);
+  const fechaObjetivo = formatoFechaSoQL(objetivo);
 
-  const whereClause = `fecha_de_fin_del_contrato between '${desde}T00:00:00.000' and '${hasta}T23:59:59.000'`;
+  const whereClause = `fecha_de_fin_del_contrato between '${fechaObjetivo}T00:00:00.000' and '${fechaObjetivo}T23:59:59.999'`;
 
   const url = 'https://www.datos.gov.co/resource/jbjy-vk9h.json';
   const params = {
@@ -265,7 +263,7 @@ function construirCorreoHtml(nombreSupervisor, contratos) {
 
         <p style="font-size:14px; line-height:1.6; color:${COLOR_TEXTO};">
           Te informamos que tienes <strong>${cantidad} ${plural}</strong> de prestación de servicios bajo tu supervisión
-          que vence${cantidad === 1 ? '' : 'n'} en los próximos <strong>${DIAS_ANTICIPACION} días</strong>:
+          que vence${cantidad === 1 ? '' : 'n'} en <strong>${DIAS_ANTICIPACION} días</strong>:
         </p>
 
         <table style="width:100%; border-collapse:collapse; margin:20px 0; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
