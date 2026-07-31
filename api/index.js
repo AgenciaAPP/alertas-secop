@@ -30,6 +30,22 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // protege el panel de admini
 // ====================================================================================
 const TEST_EMAIL_OVERRIDE = process.env.TEST_EMAIL_OVERRIDE || '';
 
+// ====================================================================================
+// CORRECCIÓN DE CÉDULAS MAL DIGITADAS EN SECOP
+// Algunos contratos en SECOP tienen la cédula del supervisor con un error de
+// digitación (falta o sobra un dígito). Este mapa corrige esos casos puntuales,
+// SIN necesidad de tocar el dato de origen en SECOP.
+// Formato esperado en la variable de entorno (JSON): {"cedula_mal_en_secop": "cedula_correcta_en_TE_Servidores"}
+// Ejemplo: {"7089917":"70879917","1152192274":"1152195274"}
+// ====================================================================================
+let CORRECCION_CEDULAS = {};
+try {
+  CORRECCION_CEDULAS = process.env.CORRECCION_CEDULAS ? JSON.parse(process.env.CORRECCION_CEDULAS) : {};
+} catch (e) {
+  console.error('CORRECCION_CEDULAS mal formado (debe ser JSON válido):', e.message);
+  CORRECCION_CEDULAS = {};
+}
+
 const NIT_AGENCIA_APP = '900623766';
 const DIAS_ANTICIPACION = process.env.DIAS_ANTICIPACION ? parseInt(process.env.DIAS_ANTICIPACION, 10) : 30;
 const DIAS_HABILES_RESPUESTA = 5;
@@ -212,10 +228,15 @@ async function obtenerContratosProximosAVencer() {
 function agruparContratosPorSupervisor(contratos) {
   const grupos = {};
   for (const contrato of contratos) {
-    const cedulaSupervisor = contrato.n_mero_de_documento_supervisor
+    let cedulaSupervisor = contrato.n_mero_de_documento_supervisor
       ? String(contrato.n_mero_de_documento_supervisor).trim()
       : '';
     if (!cedulaSupervisor) continue;
+
+    // aplicar corrección si esta cédula está mapeada como error conocido
+    if (CORRECCION_CEDULAS[cedulaSupervisor]) {
+      cedulaSupervisor = CORRECCION_CEDULAS[cedulaSupervisor];
+    }
 
     if (!grupos[cedulaSupervisor]) grupos[cedulaSupervisor] = [];
     grupos[cedulaSupervisor].push(contrato);
@@ -405,7 +426,11 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
           cedulaSupervisor,
           totalContratos: contratosDelSupervisor.length,
           enviado: false,
-          motivo: 'supervisor_no_registrado_en_TE_Servidores'
+          motivo: 'supervisor_no_registrado_en_TE_Servidores',
+          diagnostico: contratosDelSupervisor.map(c => ({
+            referencia: c.referencia_del_contrato,
+            valorCrudoCampoSupervisor: JSON.stringify(c.n_mero_de_documento_supervisor)
+          }))
         });
         continue;
       }
