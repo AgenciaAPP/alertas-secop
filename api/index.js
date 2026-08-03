@@ -28,6 +28,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // protege el panel de admini
 // a esa dirección en vez de al supervisor real (el asunto deja claro el destinatario
 // original). Déjala vacía/sin definir para que el envío sea real a cada supervisor.
 // ====================================================================================
+// Cédulas de supervisores cuyo correo del jefe (campo CorreoJefe en TE_Servidores)
+// debe recibir copia (CC) de la alerta. Regla fija, no cambia seguido.
+const CEDULAS_CON_COPIA_JEFE = ['43597565', '1017154411', '71687065'];
+
 const TEST_EMAIL_OVERRIDE = process.env.TEST_EMAIL_OVERRIDE || '';
 
 // Si tiene un valor, ese correo recibe una copia oculta (BCC) de CADA alerta real
@@ -126,7 +130,8 @@ async function obtenerSupervisores(token) {
     mapa[cedula] = {
       cedula,
       nombre: item.fields.NombreCompleto || '',
-      correo: item.fields.Correo || ''
+      correo: item.fields.Correo || '',
+      correoJefe: item.fields.CorreoJefe || ''
     };
   }
   return mapa;
@@ -180,8 +185,23 @@ async function obtenerRemitenteConfigurado(token) {
     idSharePoint: item.id,
     etag: item['@odata.etag'] || item.eTag || null,
     correoRemitente: item.fields.CorreoRemitente || '',
+    copiaGeneral: item.fields.CopiaGeneral || '',
     ultimaEjecucion: item.fields.UltimaEjecucion || ''
   };
+}
+
+async function actualizarCopiaGeneral(token, idSharePoint, copiaGeneralTexto) {
+  const url = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/lists/${LIST_ID_CONFIG_ALERTAS}/items/${idSharePoint}`;
+  const payload = { fields: { CopiaGeneral: copiaGeneralTexto } };
+  await axios.patch(url, payload, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
+}
+
+function parsearListaCorreos(texto) {
+  if (!texto) return [];
+  return texto
+    .split(/[,;\n]/)
+    .map(c => c.trim())
+    .filter(c => c.length > 0);
 }
 
 // Devuelve true si logró tomar el "bloqueo" (nadie más lo había tomado desde que
@@ -355,7 +375,7 @@ function construirCorreoHtml(nombreSupervisor, contratos) {
 // ====================================================================================
 // ENVÍO DEL CORREO VÍA MICROSOFT GRAPH
 // ====================================================================================
-async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nombreSupervisor, contratos) {
+async function enviarCorreoAlerta(token, correoRemitente, cedulaSupervisor, correoSupervisor, nombreSupervisor, correoJefe, copiaGeneralLista, contratos) {
   if (!correoRemitente) {
     throw new Error('No hay un correo remitente configurado en ConfigAlertasSecop.');
   }
@@ -373,6 +393,23 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
     ? `🧪 [PRUEBA - destinatario real: ${correoSupervisor}] Atención supervisor: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`
     : `⏰ Atención supervisor: ${cantidad} contrato(s) de prestación de servicios próximos a vencer`;
 
+  // ---- Construcción de copias (CC) ----
+  // En modo prueba NO se agrega ninguna copia real (ni jefe, ni copia general),
+  // para no exponer correos reales de directivos mientras se está probando.
+  const copias = [];
+  if (!modoPrueba) {
+    copiaGeneralLista.forEach(correo => copias.push(correo));
+
+    const aplicaCopiaJefe = CEDULAS_CON_COPIA_JEFE.includes(String(cedulaSupervisor).trim());
+    if (aplicaCopiaJefe && correoJefe) {
+      copias.push(correoJefe);
+    }
+  }
+  // Deduplicar y evitar que el remitente o el destinatario principal queden también en copia
+  const copiasFinal = [...new Set(copias)].filter(
+    c => c && c.toLowerCase() !== destinatarioFinal.toLowerCase()
+  );
+
   const mailPayload = {
     message: {
       subject: asunto,
@@ -381,6 +418,7 @@ async function enviarCorreoAlerta(token, correoRemitente, correoSupervisor, nomb
         content: construirCorreoHtml(nombreSupervisor, contratos)
       },
       toRecipients: [{ emailAddress: { address: destinatarioFinal } }],
+      ...(copiasFinal.length > 0 ? { ccRecipients: copiasFinal.map(c => ({ emailAddress: { address: c } })) } : {}),
       ...(COPIA_SEGUIMIENTO ? { bccRecipients: [{ emailAddress: { address: COPIA_SEGUIMIENTO } }] } : {})
     }
   };
@@ -448,6 +486,8 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
     etapaActual = 'obtener_supervisores_sharepoint';
     const supervisores = await obtenerSupervisores(token);
 
+    const copiaGeneralLista = parsearListaCorreos(remitenteConfig.copiaGeneral);
+
     const grupos = agruparContratosPorSupervisor(contratos);
     const resultados = [];
 
@@ -474,8 +514,11 @@ app.get('/api/cron-alertas-vencimiento', requireCronAuth, async (req, res) => {
         const resultadoEnvio = await enviarCorreoAlerta(
           token,
           correoRemitente,
+          cedulaSupervisor,
           supervisor.correo,
           supervisor.nombre,
+          supervisor.correoJefe,
+          copiaGeneralLista,
           contratosDelSupervisor
         );
         resultados.push({
@@ -598,6 +641,21 @@ app.put('/api/admin/remitente', requireAdminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'No existe el ítem REMITENTE_ACTIVO en ConfigAlertasSecop.' });
     }
     await actualizarRemitente(token, config.idSharePoint, correoRemitente);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, detail: error.response?.data || error.message });
+  }
+});
+
+app.put('/api/admin/copia-general', requireAdminAuth, async (req, res) => {
+  const { copiaGeneral } = req.body;
+  try {
+    const token = await getMicrosoftGraphToken();
+    const config = await obtenerRemitenteConfigurado(token);
+    if (!config) {
+      return res.status(404).json({ success: false, message: 'No existe el ítem REMITENTE_ACTIVO en ConfigAlertasSecop.' });
+    }
+    await actualizarCopiaGeneral(token, config.idSharePoint, copiaGeneral || '');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, detail: error.response?.data || error.message });
