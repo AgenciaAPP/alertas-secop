@@ -104,6 +104,15 @@
     </div>
 
     <div class="card">
+      <h2>Copia general (CC en todos los correos)</h2>
+      <p style="font-size:12px; color:var(--gris); margin-top:0;">Un correo por línea, o separados por coma.</p>
+      <textarea id="copiaGeneralInput" rows="6" style="width:100%; padding:8px 10px; border:1px solid #d0d5dd; border-radius:5px; font-family:inherit; font-size:13px;" placeholder="direcciontecnica@app.gov.co&#10;catalina.perez@app.gov.co"></textarea>
+      <br/>
+      <button onclick="guardarCopiaGeneral()" style="margin-top:8px;">Guardar</button>
+      <p class="msg" id="copiaGeneralMsg"></p>
+    </div>
+
+    <div class="card">
       <h2>Agregar supervisor</h2>
       <input type="text" id="nuevaCedula" placeholder="Cédula" />
       <input type="text" id="nuevoNombre" placeholder="Nombre completo" />
@@ -159,6 +168,7 @@
     const resRem = await fetch(`${API_BASE}/api/admin/remitente`, { headers: headers() });
     const dataRem = await resRem.json();
     document.getElementById('remitenteInput').value = dataRem.data?.correoRemitente || '';
+    document.getElementById('copiaGeneralInput').value = dataRem.data?.copiaGeneral || '';
 
     return true;
   }
@@ -231,6 +241,24 @@
     if (data.success) {
       msg.className = 'msg ok';
       msg.textContent = 'Remitente actualizado.';
+    } else {
+      msg.className = 'msg error';
+      msg.textContent = 'Error al actualizar.';
+    }
+  }
+
+  async function guardarCopiaGeneral() {
+    const copiaGeneral = document.getElementById('copiaGeneralInput').value.trim();
+    const msg = document.getElementById('copiaGeneralMsg');
+    const res = await fetch(`${API_BASE}/api/admin/copia-general`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ copiaGeneral })
+    });
+    const data = await res.json();
+    if (data.success) {
+      msg.className = 'msg ok';
+      msg.textContent = 'Copia general actualizada.';
     } else {
       msg.className = 'msg error';
       msg.textContent = 'Error al actualizar.';
